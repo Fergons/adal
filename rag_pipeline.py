@@ -5,21 +5,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import adalflow as adal
 from dataclasses import dataclass
 
-# Import the FAISS retriever and Document type from AdalFlow.
 from adalflow.components.retriever.faiss_retriever import FAISSRetriever
 from adalflow.core.types import Document
 
 from adalflow.tracing import trace_generator_call, trace_generator_states
 from process_ebooks import process_epub
 
-# Import the Ollama client (assumed available via adalflow).
-# (If the actual import path differs in your installation, adjust accordingly.)
-# For example: from adalflow.clients.ollama_client import OllamaClient
-# Here we assume adal.OllamaClient is available.
 
-###############################################################################
-# Define the output data structure for our narrative trope evaluation task
-###############################################################################
 
 
 @dataclass
@@ -31,7 +23,6 @@ class NarrativeTropeAnswer:
 ###############################################################################
 # Generator for Clarifying Questions
 ###############################################################################
-
 
 class ClarifyingQuestionGenerator(adal.Generator):
     """
@@ -60,7 +51,6 @@ Otherwise, respond with "No further questions".
 # Generator for the Final Answer with Citations
 ###############################################################################
 
-
 class FinalAnswerGenerator(adal.Generator):
     """
     Uses an LLM to produce the final answer along with citations.
@@ -81,6 +71,8 @@ Combined Evidence:
 Based on the above evidence, determine whether the narrative trope described in the query is present in the book.
 Provide your answer as a JSON object with the following keys:
 - "answer": A concise answer ("Yes" or "No").
+- "confidence": A confidence score between 0 and 100.
+- "explanation": A short explanation for your answer.
 - "citations": A list of citations referencing the relevant book chunks.
 """
         prompt_params = {
@@ -98,10 +90,6 @@ Provide your answer as a JSON object with the following keys:
             prompt_kwargs=prompt_params,
         )
 
-
-###############################################################################
-# New Module: Query-Focused Summarizer
-###############################################################################
 
 @trace_generator_call()
 @trace_generator_states()
@@ -139,7 +127,7 @@ Final summary:
         book_chunks = prompt_kwargs.get("book_chunks", [])
 
         batch_summaries = []
-        # Process book chunks in batches.
+ 
         for i in range(0, len(book_chunks), self.chunk_batch_size):
             batch = book_chunks[i : i + self.chunk_batch_size]
             batch_text = "\n\n".join(chunk["text"] for chunk in batch)
@@ -161,8 +149,6 @@ Final summary:
 ###############################################################################
 # The Iterative RAG Pipeline for Narrative Trope Evaluation with FAISS
 ###############################################################################
-
-
 
 @trace_generator_call()
 @trace_generator_states()
@@ -187,13 +173,13 @@ class NarrativeTropeRAG(adal.GradComponent):
         self.passages_per_hop = passages_per_hop
         self.max_iterations = max_iterations
 
-        # Instantiate the embedder using the Ollama client.
+       
         self.embedder = adal.Embedder(
             model_client=adal.OllamaClient(host="http://localhost:11434"),
             model_kwargs={"model": "bge-m3:latest"},
         )
 
-        # Create a FAISS retriever (documents will be set later in call()).
+       
         self.faiss_retriever = FAISSRetriever(
             top_k=passages_per_hop,
             embedder=self.embedder,
@@ -202,7 +188,7 @@ class NarrativeTropeRAG(adal.GradComponent):
             document_map_func=lambda doc: doc.vector,
         )
 
-        # Other modules remain the same.
+     
         self.question_generator = ClarifyingQuestionGenerator(
             model_client=model_client, model_kwargs=model_kwargs
         )
@@ -263,21 +249,16 @@ class NarrativeTropeRAG(adal.GradComponent):
             document_map_func=lambda doc: self.embedder(doc.text).data[0].embedding,
         )
 
-        memory = []  # To accumulate retrieved evidence.
+        memory = [] 
         current_query = query
         iteration = 0
 
         while iteration < self.max_iterations:
-            # Use the FAISS retriever with the current query.
             retriever_outputs = self.faiss_retriever(current_query)
             retrieved_context = self._retriever_context(retriever_outputs, docs)
 
             if retrieved_context:
                 memory.append(retrieved_context)
-
-            # If we have at least one retrieved passage, we consider evidence sufficient.
-            if memory:
-                break
 
             # Generate a clarifying question to refine the search.
             clarifying_prompt_kwargs = {
@@ -298,13 +279,13 @@ class NarrativeTropeRAG(adal.GradComponent):
             current_query = clarifying_question
             iteration += 1
 
-        # Obtain a focused summary of the entire book.
+    
         summary_output = self.summarizer.call(
             prompt_kwargs={"query": query, "book_chunks": book_chunks}, id=id
         )
         summary_text = summary_output.data
 
-        # Combine retrieved evidence with the focused summary.
+      
         combined_context = "\n\n".join(memory + [summary_text])
         final_prompt_kwargs = {
             "query": query,
@@ -400,7 +381,6 @@ class NarrativeTropeAdal(adal.AdalComponent):
 
 def test_narrative_trope_pipeline(book_chunks=None, user_query=None):
     if book_chunks is None:
-        # Example book chunks: each with 'text' and 'citation'
         book_chunks = [
             {
                 "text": "In the dark corridors of the ancient castle, a mysterious figure roamed, embodying the haunted hero trope.",
@@ -414,37 +394,34 @@ def test_narrative_trope_pipeline(book_chunks=None, user_query=None):
                 "text": "A subtle reference to a tragic love story was hidden in the dialogue.",
                 "citation": "Chapter 7",
             },
-            # Additional chunks can be added here...
+            
         ]
     if user_query is None:
-        # User query describing the narrative trope.
+        
         user_query = "Does the book contain the haunted hero trope?"
 
-    # Initialize model client and configuration (replace with your actual settings).
-    model_client = adal.OllamaClient(host="http://localhost:11434")  # This could be used for generation as well.
+   
+    model_client = adal.OllamaClient(host="http://localhost:11434") .
     model_kwargs = {
         "model": "qwen2.5:14b-instruct-q8_0"
-    }  # Example generator configuration.   
+    }  
 
-    # Create the AdalComponent for the Narrative Trope task.
+  
     adal_component = NarrativeTropeAdal(
         model_client=model_client, model_kwargs=model_kwargs, passages_per_hop=2
     )
 
-    # Prepare a sample for inference.
+    
     sample = {
         "query": user_query,
         "book_chunks": book_chunks,
-        "answer": "Yes",  # Ground truth answer (for evaluation purposes).
+        "answer": "Yes",  
         "id": "sample_001",
     }
 
-    # Retrieve the task function and its arguments.
+  
     task_fn, task_kwargs = adal_component.prepare_task(sample)
-    # Execute the task function (in inference mode).
     result = task_fn(**task_kwargs)
-
-    # The final output (result.data) is expected to be a JSON string with "answer" and "citations".
     print("Final output:", result.data)
 
 

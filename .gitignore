@@ -13,6 +13,4 @@ wheels/
 traces/
 
 # Generated files
-*.jsonl
-*.epub
 *.json
