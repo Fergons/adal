@@ -14,3 +14,9 @@ traces/
 
 # Generated files
 *.json
+*.jsonl
+*.epub
+*.txt
+*.csv
+
+*.env
