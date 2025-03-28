@@ -13,7 +13,7 @@ from adalflow.core.types import Document
 
 from adalflow.tracing import trace_generator_call, trace_generator_states
 from m3_embedder import M3Embedder
-from process_ebooks import process_epub, load_jsonl
+from process_ebooks import load_jsonl
 from adalflow import get_logger
 from rate_limiter import rate_limited_call
 
@@ -31,6 +31,18 @@ Score 3: Relevant to the query
 Score 4: Highly relevant to the query
 Score 5: A perfect match to the query
 """
+
+
+
+@dataclass
+class TropeQuery(DataClass):
+    id: str
+    book_id: str
+    trope_name: str
+    trope_definition: str
+    trope_example: str
+    query: str
+    answer: bool
 
 
 @dataclass
@@ -51,13 +63,17 @@ class CitationStore:
         return self.citations[citation_id]
 
     def get_citations(self, citation_ids: List[str]) -> List[str]:
-        return [f"<Citation id: {citation_id}>\nText: {self.citations[citation_id]}</Citation>" for citation_id in citation_ids ]
+        return [
+            f"<Citation id: {citation_id}>\nText: {self.citations[citation_id]}</Citation>"
+            for citation_id in citation_ids
+        ]
 
     def add_citation(self, citation_id: str, citation: str):
         self.citations[citation_id] = citation
 
     def add_citations(self, citation_ids: list[str], citations: list[str]):
         self.citations.update(zip(citation_ids, citations))
+
 
 @dataclass
 class Question(DataClass):
@@ -134,26 +150,43 @@ class InvestigationPath(DataClass):
     )
     description: str = field(
         default_factory=str,
-        metadata={"description": "Brief description of what this investigation path is exploring."},
+        metadata={
+            "description": "Brief description of what this investigation path is exploring."
+        },
     )
     reasoning: str = field(
         default_factory=str,
-        metadata={"description": "Reasoning for why this path might lead to evidence of the trope."},
+        metadata={
+            "description": "Reasoning for why this path might lead to evidence of the trope."
+        },
     )
     search_queries: List[str] = field(
         default_factory=list,
-        metadata={"description": "List of search queries to explore this investigation path."},
+        metadata={
+            "description": "List of search queries to explore this investigation path."
+        },
     )
     priority: int = field(
         default=1,
-        metadata={"description": "Priority of this investigation path (1-5, with 1 being highest)."},
+        metadata={
+            "description": "Priority of this investigation path (1-5, with 1 being highest)."
+        },
     )
     status: str = field(
         default="pending",
-        metadata={"description": "Status of this investigation path: 'pending', 'in_progress', 'completed'."},
+        metadata={
+            "description": "Status of this investigation path: 'pending', 'in_progress', 'completed'."
+        },
     )
     __input_fields__ = []
-    __output_fields__ = ["id", "description", "reasoning", "search_queries", "priority", "status"]
+    __output_fields__ = [
+        "id",
+        "description",
+        "reasoning",
+        "search_queries",
+        "priority",
+        "status",
+    ]
 
 
 @dataclass
@@ -172,22 +205,27 @@ class InvestigationPlan(DataClass):
 
 @dataclass
 class PathInvestigationResult(DataClass):
-
     path_id: str = field(
         default_factory=str,
         metadata={"description": "ID of the investigation path that was explored."},
     )
     conclusion: str = field(
         default_factory=str,
-        metadata={"description": "Conclusion about whether this path provides evidence for the trope: 'supports', 'contradicts', 'inconclusive'."},
+        metadata={
+            "description": "Conclusion about whether this path provides evidence for the trope: 'supports', 'contradicts', 'inconclusive'."
+        },
     )
     confidence: int = field(
         default=0,
-        metadata={"description": "Confidence in the conclusion (1-5, with 5 being highest)."},
+        metadata={
+            "description": "Confidence in the conclusion (1-5, with 5 being highest)."
+        },
     )
     reasoning: str = field(
         default_factory=str,
-        metadata={"description": "Detailed reasoning for the conclusion based on the evidence."},
+        metadata={
+            "description": "Detailed reasoning for the conclusion based on the evidence."
+        },
     )
     evidence: List[str] = field(
         default_factory=list,
@@ -196,10 +234,19 @@ class PathInvestigationResult(DataClass):
 
     follow_up_paths: list[InvestigationPath] = field(
         default_factory=None,
-        metadata={"description": "Any new investigation paths suggested based on this investigation. This list should contain list of 'properties' in the output format."},
+        metadata={
+            "description": "Any new investigation paths suggested based on this investigation. This list should contain list of 'properties' in the output format."
+        },
     )
     __input_fields__ = []
-    __output_fields__ = ["path_id", "conclusion", "confidence", "reasoning", "evidence", "follow_up_paths"]
+    __output_fields__ = [
+        "path_id",
+        "conclusion",
+        "confidence",
+        "reasoning",
+        "evidence",
+        "follow_up_paths",
+    ]
 
 
 @dataclass
@@ -210,21 +257,24 @@ class FinalTropeAnswer(DataClass):
     )
     confidence: int = field(
         default=0,
-        metadata={"description": "Confidence in the answer (1-5, with 5 being highest)."},
+        metadata={
+            "description": "Confidence in the answer (1-5, with 5 being highest)."
+        },
     )
     reasoning: str = field(
         default_factory=str,
-        metadata={"description": "Detailed reasoning for the final answer, synthesizing all investigation paths."},
+        metadata={
+            "description": "Detailed reasoning for the final answer, synthesizing all investigation paths."
+        },
     )
     key_evidence: List[str] = field(
         default_factory=list,
-        metadata={"description": "List of the most important citation IDs that support the final answer."},
+        metadata={
+            "description": "List of the most important citation IDs that support the final answer."
+        },
     )
     __input_fields__ = []
     __output_fields__ = ["answer", "confidence", "reasoning", "key_evidence"]
-
-
-
 
 
 ###############################################################################
@@ -393,7 +443,6 @@ Your investigation plan should be comprehensive, covering different aspects of h
         )
 
 
-
 ###############################################################################
 # Generator for Path Investigation
 ###############################################################################
@@ -454,7 +503,6 @@ Example output:
             format_type="json",
             return_data_class=True,
         )
-        logger.info(parser.get_output_format_str())
         prompt_params = {
             "output_format_str": parser.get_output_format_str(),
             "task_desc": adal.Parameter(
@@ -608,12 +656,12 @@ class NarrativeTropeRAG(adal.GradComponent):
         desc: str,
         model_client=None,
         model_kwargs=None,
-        passages_per_hop: int = 20,
+        passages_per_query: int = 20,
         max_iterations: int = 10,
         context_window: int = 3,
     ):
         super().__init__(desc=desc)
-        self.passages_per_hop = passages_per_hop
+        self.passages_per_query = passages_per_query
         self.max_iterations = max_iterations
         self.context_window = context_window
         self.model_client = model_client
@@ -623,7 +671,7 @@ class NarrativeTropeRAG(adal.GradComponent):
 
         # Configure hybrid retriever
         self.retriever = FAISSRetriever(
-            top_k=self.passages_per_hop, embedder=self.embedder, dimensions=1024
+            top_k=self.passages_per_query, embedder=self.embedder, dimensions=1024
         )
 
         # Initialize all generators
@@ -639,16 +687,15 @@ class NarrativeTropeRAG(adal.GradComponent):
         self.final_answer_generator = FinalTropeAnswerGenerator(
             model_client=model_client, model_kwargs=model_kwargs
         )
-        
+
         # Initialize stores
         self.citation_store = CitationStore()
-       
 
     def _process_documents(self, book_chunks: List[Dict]) -> List[Document]:
         """Enhanced document processing with semantic enrichment"""
         return [
             Document(
-                id=chunk["citation"],
+                id=chunk["citation_id"],
                 text=chunk["text"],
                 meta_data={
                     **chunk.get("meta", {}),
@@ -666,7 +713,7 @@ class NarrativeTropeRAG(adal.GradComponent):
     ) -> adal.GeneratorOutput:
         """
         Execute the narrative trope investigation pipeline.
-        
+
         The pipeline follows these steps:
         1. Generate rephrased queries for better semantic search
         2. Retrieve relevant passages for all rephrased queries
@@ -677,246 +724,329 @@ class NarrativeTropeRAG(adal.GradComponent):
         # Initialize retriever and process documents
         self.retriever.reset_index()
         docs = self._process_documents(book_chunks)
-        self.retriever.build_index_from_documents(docs, document_map_func=lambda x: x.vector)
-        
-        try:
-            # Step 1: Generate rephrased queries for better semantic search
-            logger.info("Step 1: Generating rephrased queries for better semantic search...")
-            rephrased_queries_response = rate_limited_call(
-                "google_genai", 
-                self.query_rephrase_generator, 
-                prompt_kwargs={"query": query}
-            )
-            
-            rephrased_queries = rephrased_queries_response.data.rephrased_queries
-            rephrasing_reasoning = rephrased_queries_response.data.reasoning
-            
-            logger.info(f"Generated {len(rephrased_queries)} rephrased queries")
-            logger.info(f"Rephrasing reasoning: {rephrasing_reasoning}")
-            
-            # Step 2: Retrieve relevant passages for all rephrased queries
-            logger.info("Step 2: Retrieving relevant passages for all rephrased queries...")
-            all_queries = [query] + rephrased_queries
-            
-            # Track all retrieved documents
-            all_retrieved_doc_ids = set()
-            all_retrieved_docs = []
-            query_to_docs = {}
-            
-            # Retrieve documents for each query
-            for q in all_queries:
-                logger.info(f"Retrieving documents for query: {q}")
+        self.retriever.build_index_from_documents(
+            docs, document_map_func=lambda x: x.vector
+        )
+
+        # try:
+        logger.info(
+            "Step 1: Generating rephrased queries for better semantic search..."
+        )
+        rephrased_queries_response = rate_limited_call(
+            "google_genai",
+            self.query_rephrase_generator,
+            prompt_kwargs={"query": query},
+        )
+
+        rephrased_queries = rephrased_queries_response.data.rephrased_queries
+        rephrasing_reasoning = rephrased_queries_response.data.reasoning
+
+        logger.info(f"Generated {len(rephrased_queries)} rephrased queries")
+        logger.info(f"Rephrasing reasoning: {rephrasing_reasoning}")
+
+        logger.info(
+            "Step 2: Retrieving relevant passages for all rephrased queries..."
+        )
+        all_queries = [query] + rephrased_queries
+
+        all_retrieved_doc_ids = set()
+        all_retrieved_docs = []
+        query_to_docs = {}
+
+        for q in all_queries:
+            try:
                 retrieved_context = self.retriever.retrieve_string_queries(q)
+            except Exception as e:
+                logger.error(f"Error retrieving context for query: {e}")
+                continue    
+            retrieved_context = retrieved_context[0]
+
+            query_docs = []
+            for i in retrieved_context.doc_indices:
+                doc = docs[i]
+                if doc.id not in all_retrieved_doc_ids:
+                    all_retrieved_doc_ids.add(doc.id)
+                    query_docs.append(doc)
+                    all_retrieved_docs.append(doc)
+
+            query_to_docs[q] = query_docs
+
+            if query_docs:
+                self.citation_store.add_citations(
+                    [doc.id for doc in query_docs], [doc.text for doc in query_docs]
+                )
+                logger.info(
+                    f"Found {len(query_docs)} new relevant passages for query: {q}"
+                )
+
+        logger.info(f"Total unique documents retrieved: {len(all_retrieved_docs)}")
+
+        if not all_retrieved_docs:
+            logger.warning("No relevant documents found for any query.")
+            final_answer = FinalTropeAnswer(
+                answer="No",
+                confidence=5,
+                reasoning="No relevant passages were found in the book for any of the queries related to this trope.",
+                key_evidence=[],
+            )
+            return adal.GeneratorOutput(data=final_answer)
+
+        initial_findings = []
+        for q, q_docs in query_to_docs.items():
+            if q_docs:
+                doc_summary = "\n".join(
+                    [f"Citation ID: {doc.id}\nText: {doc.text}" for doc in q_docs]
+                )
+                initial_findings.append(
+                    f"Query: {q}\nDocuments found: {len(q_docs)}\n{doc_summary}"
+                )
+            else:
+                initial_findings.append(f"Query: {q}\nNo documents found.")
+
+        initial_findings_str = "\n\n".join(initial_findings)
+
+        logger.info("Step 3: Generating investigation plan...")
+        investigation_plan_response = rate_limited_call(
+            "google_genai",
+            self.investigation_plan_generator,
+            prompt_kwargs={
+                "query": query,
+                "initial_findings": initial_findings_str,
+            },
+        )
+
+        investigation_plan = investigation_plan_response.data
+
+        investigation_paths = sorted(
+            investigation_plan.paths, key=lambda p: p.priority
+        )
+
+        logger.info(
+            f"Generated investigation plan with {len(investigation_paths)} paths"
+        )
+        logger.info(f"Investigation plan reasoning: {investigation_plan.reasoning}")
+
+        logger.info("Step 4: Investigating paths in priority order...")
+
+        investigation_results = []
+        investigation_history = []
+
+        current_iteration = 0
+
+        for path_index, path in enumerate(investigation_paths):
+            logger.info(
+                f"Investigating path {path_index + 1}/{len(investigation_paths)}: {path.description}"
+            )
+            if current_iteration > self.max_iterations:
+                logger.info(f"Max iterations reached. Stopping investigation.")
+                break
+            current_iteration += 1
+            path.status = "in_progress"
+
+            path_docs = []
+            path_doc_ids = set()
+
+            for search_query in path.search_queries:
+                logger.info(
+                    f"Retrieving documents for search query: {search_query}"
+                )
+                retrieved_context = self.retriever.retrieve_string_queries(
+                    search_query
+                )
+                if not retrieved_context:
+                    logger.error(f"Retrieved context is empty for search query.")
+                    continue
                 retrieved_context = retrieved_context[0]
-                
-                # Store unique documents
-                query_docs = []
+
                 for i in retrieved_context.doc_indices:
                     doc = docs[i]
+                    if doc.id not in path_doc_ids:
+                        path_doc_ids.add(doc.id)
+                        path_docs.append(doc)
+
+                self.citation_store.add_citations(
+                    [
+                        doc.id
+                        for doc in path_docs
+                        if doc.id not in all_retrieved_doc_ids
+                    ],
+                    [
+                        doc.text
+                        for doc in path_docs
+                        if doc.id not in all_retrieved_doc_ids
+                    ],
+                )
+
+                for doc in path_docs:
                     if doc.id not in all_retrieved_doc_ids:
                         all_retrieved_doc_ids.add(doc.id)
-                        query_docs.append(doc)
                         all_retrieved_docs.append(doc)
-                
-                # Store the documents for this query
-                query_to_docs[q] = query_docs
-                
-                # Add to citation store
-                if query_docs:
-                    self.citation_store.add_citations(
-                        [doc.id for doc in query_docs], 
-                        [doc.text for doc in query_docs]
-                    )
-                    logger.info(f"Found {len(query_docs)} new relevant passages for query: {q}")
-            
-            # Log total unique documents found
-            logger.info(f"Total unique documents retrieved: {len(all_retrieved_docs)}")
-            
-            # If no documents found, return early with an explanation
-            if not all_retrieved_docs:
-                logger.warning("No relevant documents found for any query.")
-                final_answer = FinalTropeAnswer(
-                    answer="No",
-                    confidence=5,
-                    reasoning="No relevant passages were found in the book for any of the queries related to this trope.",
-                    key_evidence=[]
-                )
-                return adal.GeneratorOutput(data=final_answer)
-            
-            # Prepare initial findings summary for the investigation planner
-            initial_findings = []
-            for q, q_docs in query_to_docs.items():
-                if q_docs:
-                    doc_summary = "\n".join([f"Citation ID: {doc.id}\nText: {doc.text}" for doc in q_docs])
-                    initial_findings.append(f"Query: {q}\nDocuments found: {len(q_docs)}\n{doc_summary}")
-                else:
-                    initial_findings.append(f"Query: {q}\nNo documents found.")
-            
-            initial_findings_str = "\n\n".join(initial_findings)
-            
-            # Step 3: Generate an investigation plan with multiple paths
-            logger.info("Step 3: Generating investigation plan...")
-            investigation_plan_response = rate_limited_call(
-                "google_genai", 
-                self.investigation_plan_generator, 
-                prompt_kwargs={
-                    "query": query,
-                    "initial_findings": initial_findings_str
-                }
+
+            logger.info(
+                f"Found {len(path_docs)} documents for path: {path.description}"
             )
-            
-            investigation_plan = investigation_plan_response.data
-            
-            # Sort paths by priority
-            investigation_paths = sorted(investigation_plan.paths, key=lambda p: p.priority)
-            
-            logger.info(f"Generated investigation plan with {len(investigation_paths)} paths")
-            logger.info(f"Investigation plan reasoning: {investigation_plan.reasoning}")
-            
-            # Step 4: Investigate each path in priority order
-            logger.info("Step 4: Investigating paths in priority order...")
-            
-            investigation_results = []
-            investigation_history = []
-            
-            for path_index, path in enumerate(investigation_paths):
-                logger.info(f"Investigating path {path_index+1}/{len(investigation_paths)}: {path.description}")
-                
-                # Update path status
-                path.status = "in_progress"
-                
-                # Retrieve documents for this path's search queries
-                path_docs = []
-                path_doc_ids = set()
-                
-                for search_query in path.search_queries:
-                    logger.info(f"Retrieving documents for search query: {search_query}")
-                    retrieved_context = self.retriever.retrieve_string_queries(search_query)
-                    retrieved_context = retrieved_context[0]
-                    
-                    # Store unique documents for this path
-                    for i in retrieved_context.doc_indices:
-                        doc = docs[i]
-                        if doc.id not in path_doc_ids:
-                            path_doc_ids.add(doc.id)
-                            path_docs.append(doc)
-                    
-                    # Add to citation store
-                    self.citation_store.add_citations(
-                        [doc.id for doc in path_docs if doc.id not in all_retrieved_doc_ids], 
-                        [doc.text for doc in path_docs if doc.id not in all_retrieved_doc_ids]
-                    )
-                    
-                    # Update all retrieved docs
-                    for doc in path_docs:
-                        if doc.id not in all_retrieved_doc_ids:
-                            all_retrieved_doc_ids.add(doc.id)
-                            all_retrieved_docs.append(doc)
-                
-                logger.info(f"Found {len(path_docs)} documents for path: {path.description}")
-                
-                # If no documents found for this path, mark as completed and continue
-                if not path_docs:
-                    logger.warning(f"No documents found for path: {path.description}")
-                    path.status = "completed"
-                    
-                    # Create a minimal result for this path
-                    path_result = PathInvestigationResult(
-                        path_id=path.id,
-                        conclusion="inconclusive",
-                        confidence=1,
-                        reasoning=f"No relevant documents found for this investigation path.",
-                        evidence=[],
-                        follow_up_paths=[]
-                    )
-                    
-                    investigation_results.append(path_result)
-                    investigation_history.append(f"Path {path_index+1}: {path.description} - No documents found")
-                    continue
-                
-                # Prepare evidence string for this path
-                evidence_str = self._docs_to_string(path_docs)
-                
-                # Prepare investigation history string
-                investigation_history_str = "\n\n".join(investigation_history)
-                
-                # Investigate this path
-                path_investigation_response = rate_limited_call(
-                    "google_genai", 
-                    self.path_investigation_generator, 
-                    prompt_kwargs={
-                        "query": query,
-                        "investigation_path": json.dumps(path, default=lambda o: o.__dict__),
-                        "evidence": evidence_str,
-                        "investigation_history": investigation_history_str
-                    }
-                )
-                
-                path_result = path_investigation_response.data
-                logger.info(f"Path result: {path_investigation_response.raw_response}")
-                
-                # Update path status
+
+            if not path_docs:
+                logger.warning(f"No documents found for path: {path.description}")
                 path.status = "completed"
-                
-                # Add result to investigation results
-                investigation_results.append(path_result)
-                
-                # Add to investigation history
-                investigation_history.append(
-                    f"Path {path_index+1}: {path.description}\n"
-                    f"Conclusion: {path_result.conclusion}\n"
-                    f"Confidence: {path_result.confidence}/5\n"
-                    f"Reasoning: {path_result.reasoning}\n"
-                    f"Evidence: {', '.join(path_result.evidence)}"
+
+                path_result = PathInvestigationResult(
+                    path_id=path.id,
+                    conclusion="inconclusive",
+                    confidence=1,
+                    reasoning=f"No relevant documents found for this investigation path.",
+                    evidence=[],
+                    follow_up_paths=[],
                 )
-                
-                # Add any follow-up paths to the investigation
-                if path_result.follow_up_paths:
-                    logger.info(f"Adding {len(path_result.follow_up_paths)} follow-up paths to investigation")
-                    for follow_up_path in path_result.follow_up_paths:
-                        follow_up_path.priority = len(investigation_paths) + 1  # Lower priority than original paths
-                        investigation_paths.append(follow_up_path)
-            
-            # Step 5: Synthesize findings into a final answer
-            logger.info("Step 5: Synthesizing findings into final answer...")
-            
-            # Prepare investigation results string
-            investigation_results_str = json.dumps(
-                [result.__dict__ for result in investigation_results], 
-                default=lambda o: o.__dict__
-            )
-            
-            # Prepare all evidence string
-            all_evidence_str = self._docs_to_string(all_retrieved_docs)
-            
-            # Generate final answer
-            final_answer_response = rate_limited_call(
-                "google_genai", 
-                self.final_answer_generator, 
+
+                investigation_results.append(path_result)
+                investigation_history.append(
+                    f"Path {path_index + 1}: {path.description} - No documents found"
+                )
+                continue
+
+            evidence_str = self._docs_to_string(path_docs)
+
+            investigation_history_str = "\n\n".join(investigation_history)
+
+            path_investigation_response = rate_limited_call(
+                "google_genai",
+                self.path_investigation_generator,
                 prompt_kwargs={
                     "query": query,
-                    "investigation_results": investigation_results_str,
-                    "all_evidence": all_evidence_str
-                }
+                    "investigation_path": json.dumps(
+                        path, default=lambda o: o.__dict__
+                    ),
+                    "evidence": evidence_str,
+                    "investigation_history": investigation_history_str,
+                },
             )
-            
-            final_answer = final_answer_response.data
-            
-            logger.info(f"Final answer: {final_answer.answer}")
-            logger.info(f"Confidence: {final_answer.confidence}/5")
-            logger.info(f"Reasoning: {final_answer.reasoning}")
-            
-            return adal.GeneratorOutput(data=final_answer)
-            
-        except Exception as e:
-            logger.error(f"Error in structured approach: {str(e)}")
-        
+            if path_investigation_response.data is None:
+                logger.error(f"Path investigation response is None for path: {path.description}")
+                continue
+            path_result = path_investigation_response.data
+            path.status = "completed"
+            current_iteration += 1
+            investigation_results.append(path_result)
+
+            investigation_history.append(
+                f"Path {path_index + 1}: {path.description}\n"
+                f"Conclusion: {path_result.conclusion}\n"
+                f"Confidence: {path_result.confidence}/5\n"
+                f"Reasoning: {path_result.reasoning}\n"
+                f"Evidence: {', '.join(path_result.evidence)}"
+            )
+
+            if path_result.follow_up_paths:
+                logger.info(
+                    f"Adding {len(path_result.follow_up_paths)} follow-up paths to investigation"
+                )
+                for follow_up_path in path_result.follow_up_paths:
+                    follow_up_path.priority = (
+                        len(investigation_paths) + 1
+                    )  # Lower priority than original paths
+                    investigation_paths.append(follow_up_path)
+
+        logger.info("Step 5: Synthesizing findings into final answer...")
+
+        investigation_results_str = json.dumps(
+            [result.__dict__ for result in investigation_results],
+            default=lambda o: o.__dict__,
+        )
+
+        all_evidence_str = self._docs_to_string(all_retrieved_docs)
+
+        final_answer_response = rate_limited_call(
+            "google_genai",
+            self.final_answer_generator,
+            prompt_kwargs={
+                "query": query,
+                "investigation_results": investigation_results_str,
+                "all_evidence": all_evidence_str,
+            },
+        )
+
+        final_answer = final_answer_response.data
+
+        logger.info(f"Final answer: {final_answer.answer}")
+        logger.info(f"Confidence: {final_answer.confidence}/5")
+        logger.info(f"Reasoning: {final_answer.reasoning}")
+
+        return adal.GeneratorOutput(id=id, data=final_answer)
+
+        # except Exception as e:
+        #     logger.error(f"Error in structured approach: {str(e)}")
+
     def forward(
-        self, query: str, book_chunks: List[Dict[str, str]], id: Optional[str] = None
+        self, query: str, book_chunks: List[Dict[str, str]], id: str | None = None
     ) -> adal.Parameter:
-        raise NotImplementedError("Training mode not implemented for NarrativeTropeRAG")
+        return self.call(query, book_chunks, id)
 
 
+class LLMJudgeGenerator(adal.Generator):
+    def __init__(self, model_client=None, model_kwargs=None):
+        judge_template = r"""
+{{task_desc}}
+
+<trope_query>
+{{query}}
+</trope_query>
+
+{%if ground_truth%}
+<ground_truth>
+{{ground_truth}}
+</ground_truth>
+{%endif%}
+
+{%if evidence_trace%}
+<evidence_trace>
+{{evidence_trace}}
+</evidence_trace>
+{%endif%}
+
+<model_answer>
+{{model_answer}}
+</model_answer>
+
+Please evaluate the model's answer and provide a score between 0 and 1, where:
+- 0 means the answer is completely incorrect or irrelevant
+- 1 means the answer is completely correct and addresses all aspects of the query
+
+Your response should be a single number between 0 and 1.
+"""
+        prompt_params = {
+            "task_desc": adal.Parameter(
+                data="""You are an expert literary judge evaluating answers about narrative tropes in literature. Your task is to assess how well a model's answer addresses a query about whether a specific trope appears in a book.
+
+EVALUATION CRITERIA:
+1. CORRECTNESS: Does the answer correctly identify the presence or absence of the trope?
+2. EVIDENCE: Does the answer cite relevant evidence from the text?
+3. REASONING: Does the answer provide sound reasoning that connects the evidence to the conclusion?
+4. COMPREHENSIVENESS: Does the answer address all key aspects of the trope mentioned in the query?
+5. NUANCE: Does the answer acknowledge complexity, partial matches, or ambiguity when appropriate?
+
+You will be provided with:
+1. The original query about a narrative trope
+2. The ground truth answer
+3. The evidence trace that led to the model's answer
+4. The model's answer to be evaluated
+
+
+Your task is to evaluate the model's answer against the ground truth and provide a score between 0 and 1, where 0 is completely incorrect and 1 is perfectly correct.
+Your response should be a single number between 0 and 1.
+""",
+                param_type=adal.ParameterType.PROMPT,
+                requires_opt=True,
+            ),
+        }
+
+        super().__init__(
+            model_client=model_client,
+            model_kwargs=model_kwargs,
+            template=judge_template,
+            prompt_kwargs=prompt_params,
+            output_processors=adal.FloatParser(),
+        )
 
 
 ###############################################################################
@@ -932,64 +1062,96 @@ class NarrativeTropeAdal(adal.AdalComponent):
         self,
         model_client: adal.ModelClient,
         model_kwargs: Dict,
-        passages_per_hop: int = 5,
+        judge_model_client: adal.ModelClient,
+        judge_model_kwargs: Dict,
+        backward_engine_model_config: Dict | None = None,
+        teacher_model_config: Dict | None = None,
+        text_optimizer_model_config: Dict | None = None,
+        passages_per_query: int = 5,
     ):
         task = NarrativeTropeRAG(
             desc="Narrative Trope RAG Pipeline",
             model_client=model_client,
             model_kwargs=model_kwargs,
-            passages_per_hop=passages_per_hop,
+            passages_per_query=passages_per_query,
         )
 
+        # self.llm_judge = LLMJudgeGenerator(
+        #     model_client=judge_model_client, model_kwargs=judge_model_kwargs
+        # )
+
+        # def eval_fn(y, y_gt):
+        #     output = self.llm_judge.call(
+        #         prompt_kwargs={
+        #             "query": y,
+        #             "ground_truth": y_gt,
+        #             "evidence_trace": "",
+        #             "model_answer": "",
+        #         }
+        #     )
+        #     return output.data
+
         def eval_fn(y, y_gt):
-            return 1.0 if y.strip().lower() == y_gt.strip().lower() else 0.0
+            return 1 if y == y_gt else 0
 
         loss_fn = adal.EvalFnToTextLoss(
             eval_fn=eval_fn,
-            eval_fn_desc="Exact match between generated answer and ground truth answer",
+            eval_fn_desc="LLM Judge Evaluation score between 0 and 1 for the model's answer.",
         )
-        super().__init__(task=task, eval_fn=eval_fn, loss_fn=loss_fn)
+        super().__init__(
+            task=task,
+            eval_fn=eval_fn,
+            loss_fn=loss_fn,
+            backward_engine_model_config=backward_engine_model_config,
+            teacher_model_config=teacher_model_config,
+            text_optimizer_model_config=text_optimizer_model_config,
+        )
 
-    def prepare_task(self, sample: Dict[str, Any]) -> Tuple[Callable[..., Any], Dict]:
+    def prepare_task(self, sample: TropeQuery) -> Tuple[Callable[..., Any], Dict]:
         # Sample is expected to contain "query", "book_chunks", "answer", and optionally "id".
         if self.task.training:
             return self.task.forward, {
-                "query": sample["query"],
-                "book_chunks": sample["book_chunks"],
-                "id": sample.get("id", None),
+                "query": sample.query,
+                "book_chunks": load_jsonl(
+                    f"preprocessed_books/{sample.book_id}.jsonl"
+                ),
+                "id": sample.id,
             }
         else:
             return self.task.call, {
-                "query": sample["query"],
-                "book_chunks": sample["book_chunks"],
-                "id": sample.get("id", None),
+                "query": sample.query,
+                "book_chunks": load_jsonl(
+                    f"preprocessed_books/{sample.book_id}.jsonl"
+                ),
+                "id": sample.id,
             }
 
     def prepare_eval(
-        self, sample: Dict[str, Any], y_pred: adal.GeneratorOutput
+        self, sample: TropeQuery, y_pred: adal.GeneratorOutput
     ) -> float:
-        y_label = ""
-        if y_pred and y_pred.data:
-            try:
-                parsed = json.loads(y_pred.data)
-                y_label = parsed.get("answer", "")
-            except json.JSONDecodeError:
-                y_label = y_pred.data
-        return self.eval_fn(y=y_label, y_gt=sample["answer"])
+        if y_pred.data is not None:
+            y_label = y_pred.data.answer
+            if y_label in ("yes", "true", "1"):
+                y_label = True
+            else:
+                y_label = False
+            return self.eval_fn, {"y": y_label, "y_gt": sample.answer}
+        else:
+            return self.eval_fn, {"y": False, "y_gt": True}
 
-    def prepare_loss(self, sample: Dict[str, Any], pred: adal.Parameter):
+    def prepare_loss(self, sample: TropeQuery, pred: adal.Parameter):
         y_gt = adal.Parameter(
             name="y_gt",
-            data=sample["answer"],
-            eval_input=sample["answer"],
+            data=sample.answer,
+            eval_input=sample.answer,
             requires_opt=False,
         )
         pred.eval_input = (
-            pred.full_response.data.get("answer", "")
+            pred.data.answer
             if pred.full_response and hasattr(pred.full_response, "data")
-            else ""
+            else "NO"
         )
-        return self.loss_fn, {"kwargs": {"y": pred, "y_gt": y_gt}}
+        return self.loss_fn, {"y": pred, "y_gt": y_gt}
 
 
 def test_narrative_trope_pipeline(book_chunks=None, user_query=None):
@@ -1027,7 +1189,7 @@ def test_narrative_trope_pipeline(book_chunks=None, user_query=None):
     }
 
     adal_component = NarrativeTropeAdal(
-        model_client=model_client, model_kwargs=model_kwargs, passages_per_hop=5
+        model_client=model_client, model_kwargs=model_kwargs, passages_per_query=5
     )
 
     sample = {
@@ -1055,5 +1217,93 @@ Compare So Proud of You, I Die Free, Do Not Go Gentle, Face Death with Dignity, 
     test_narrative_trope_pipeline(book_chunks=book_chunks, user_query=user_query)
 
 
+
+
+def load_dataset(cache_dir: str, n: int = None) -> List[TropeQuery]:
+    """
+    Dataset consists of
+    - book_id
+    - split (train, val, test)
+    - trope_name
+    - trope_definition
+    - trope_example
+
+    where trope_example is a ground truth example of the trope in the book, if None, then the trope is not present in the book.
+    """
+    import pandas as pd
+
+    df = pd.read_csv("tropes_dataset.csv")
+    df["query"] = (
+        "Does the book contain the trope "
+        + df["trope_name"]
+        + " - "
+        + df["trope_definition"]
+    )
+    df["answer"] = df["trope_example"].notna()
+    df = df.sample(n=n)
+    return [
+        TropeQuery(
+            id=row["id"],
+            book_id=row["book_id"],
+            trope_name=row["trope_name"],
+            trope_definition=row["trope_definition"],
+            trope_example=row["trope_example"],
+            query=row["query"],
+            answer=row["answer"],
+        )
+        for row in df.to_dict(orient="records")
+    ]
+
+
+def train():
+    model_client = adal.GoogleGenAIClient()
+    model_kwargs = {
+        "model": "gemini-2.0-flash",
+        "temperature": 0.7,
+        "top_p": 0.95,
+    }
+
+    judge_model_client = adal.GoogleGenAIClient()
+    judge_model_kwargs = {
+        "model": "gemini-2.0-flash",
+        "temperature": 0.7,
+        "top_p": 0.95,
+    }
+
+    backward_engine_model_config = {
+        "model_client": model_client,
+        "model_kwargs": model_kwargs,
+    }
+
+    teacher_model_config = {
+        "model_client": model_client,
+        "model_kwargs": model_kwargs,
+    }
+
+    text_optimizer_model_config = {
+        "model_client": model_client,
+        "model_kwargs": model_kwargs,
+    }
+
+    adal_component = NarrativeTropeAdal(
+        model_client=model_client,
+        model_kwargs=model_kwargs,
+        passages_per_query=5,
+        judge_model_client=judge_model_client,
+        judge_model_kwargs=judge_model_kwargs,
+        backward_engine_model_config=backward_engine_model_config,
+        teacher_model_config=teacher_model_config,
+        text_optimizer_model_config=text_optimizer_model_config,
+    )
+
+    trainset = load_dataset(cache_dir="preprocessed_books", n=2)
+    trainer = adal.Trainer(
+        adaltask=adal_component,
+        ckpt_path="checkpoints/",
+    )
+    trainer.diagnose(dataset=trainset, split="train")
+
+
 if __name__ == "__main__":
-    test_on_book("lit20")
+    # test_on_book("lit20")
+    train()
