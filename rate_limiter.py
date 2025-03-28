@@ -19,7 +19,9 @@ async def async_rate_limited_call(identifier, fn, *args, **kwargs):
     else:
         reset_time, remaining = fixed_window.get_window_stats(GOOGLE_GENAI_LIMITS, identifier)
         logger.info(f"Rate limit exceeded for {identifier}. Reset time: {reset_time}, Remaining: {remaining}")
-        time.sleep(reset_time - time.time())
+        time_to_sleep = reset_time - time.time()
+        if time_to_sleep > 0:
+            time.sleep(time_to_sleep)
         return await async_rate_limited_call(identifier, fn, *args, **kwargs)
 
 def rate_limited_call(identifier, fn, *args, **kwargs):
