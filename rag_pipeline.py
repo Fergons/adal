@@ -13,6 +13,7 @@ from adalflow.core.types import Document
 
 from adalflow.tracing import trace_generator_call, trace_generator_states
 from m3_embedder import M3Embedder
+from embedder import FastAPIClientEmbedder
 from process_ebooks import load_jsonl
 from adalflow import get_logger
 from rate_limiter import rate_limited_call
@@ -20,7 +21,7 @@ from rate_limiter import rate_limited_call
 import dotenv
 
 dotenv.load_dotenv()
-logger = get_logger(__name__, level="INFO")
+logger = get_logger(__name__, level="DEBUG")
 
 
 confidence_rubric = """###Confidence score rubrics:
@@ -163,7 +164,7 @@ class InvestigationPath(DataClass):
     search_queries: List[str] = field(
         default_factory=list,
         metadata={
-            "description": "List of search queries to explore this investigation path."
+            "description": "List of questions that are used to find relevant passages about the trope."
         },
     )
     priority: int = field(
@@ -471,10 +472,6 @@ Example output:
         "reasoning": "Somthing about new directionreasoning",
         "search_queries": [
             "Somthing about new directionsearch_queries",
-            "Somthing about new directionsearch_queries",
-            "Somthing about new directionsearch_queries",
-            "Somthing about new directionsearch_queries",
-            "Somthing about new directionsearch_queries",
             "Somthing about new directionsearch_queries"
         ],
         "priority": 3,
@@ -657,7 +654,7 @@ class NarrativeTropeRAG(adal.GradComponent):
         model_client=None,
         model_kwargs=None,
         passages_per_query: int = 20,
-        max_iterations: int = 10,
+        max_iterations: int = 20,
         context_window: int = 3,
     ):
         super().__init__(desc=desc)
@@ -667,12 +664,17 @@ class NarrativeTropeRAG(adal.GradComponent):
         self.model_client = model_client
         self.model_kwargs = model_kwargs
         # Initialize components
-        self.embedder = M3Embedder(model_name="BAAI/bge-m3", device="cuda:0")
+        # self.embedder = M3Embedder(model_name="BAAI/bge-m3", device="cuda:0")
+        # self.embedder = adal.Embedder(
+        #     model_client=adal.OllamaClient(),
+        #     model_kwargs={"model": "bge-m3:latest"} #
+        # )
+        self.embedder = FastAPIClientEmbedder(base_url="http://localhost:8000")
 
         # Configure hybrid retriever
-        self.retriever = FAISSRetriever(
-            top_k=self.passages_per_query, embedder=self.embedder, dimensions=1024
-        )
+        # self.retriever = FAISSRetriever(
+        #     top_k=self.passages_per_query, embedder=self.embedder, dimensions=1024
+        # )
 
         # Initialize all generators
         self.query_rephrase_generator = QueryRephraseGenerator(
@@ -691,6 +693,22 @@ class NarrativeTropeRAG(adal.GradComponent):
         # Initialize stores
         self.citation_store = CitationStore()
 
+    def batch_ollama_embed(self, inputs: List[str]) -> List[list[float]]:
+        outputs = []
+        for input in inputs:
+            try:
+                output = self.embedder(input)
+                outputs.append(output.data[0].embedding)
+            except Exception as e:
+                logger.error(f"Error embedding input: {input}")
+                logger.error(f"Error: {e}")
+                continue
+        return outputs
+    
+    def retrieve_string_queries(self, retriever: adal.Retriever, inputs: List[str]) -> List[Document]:
+        batch_embedings = self.batch_ollama_embed(inputs)
+        return retriever.retrieve_embedding_queries(batch_embedings)
+    
     def _process_documents(self, book_chunks: List[Dict]) -> List[Document]:
         """Enhanced document processing with semantic enrichment"""
         return [
@@ -709,7 +727,7 @@ class NarrativeTropeRAG(adal.GradComponent):
         return "\n".join([f"Citation ID: {doc.id}\nText: {doc.text}" for doc in docs])
 
     def call(
-        self, query: str, book_chunks: List[Dict], id: str = None
+        self, query: str, book_chunks: List[Dict], id: str | None = None
     ) -> adal.GeneratorOutput:
         """
         Execute the narrative trope investigation pipeline.
@@ -722,13 +740,17 @@ class NarrativeTropeRAG(adal.GradComponent):
         5. Synthesize findings into a final answer
         """
         # Initialize retriever and process documents
-        self.retriever.reset_index()
+        
+        retriever = FAISSRetriever(
+            top_k=self.passages_per_query, embedder=self.embedder, dimensions=1024
+        )
+        logger.info(f"Processing {len(book_chunks)} documents")
         docs = self._process_documents(book_chunks)
-        self.retriever.build_index_from_documents(
+        logger.info(f"Processed {len(docs)} documents")
+        retriever.build_index_from_documents(
             docs, document_map_func=lambda x: x.vector
         )
 
-        # try:
         logger.info(
             "Step 1: Generating rephrased queries for better semantic search..."
         )
@@ -736,6 +758,7 @@ class NarrativeTropeRAG(adal.GradComponent):
             "google_genai",
             self.query_rephrase_generator,
             prompt_kwargs={"query": query},
+            id=id
         )
 
         rephrased_queries = rephrased_queries_response.data.rephrased_queries
@@ -755,20 +778,23 @@ class NarrativeTropeRAG(adal.GradComponent):
 
         for q in all_queries:
             try:
-                retrieved_context = self.retriever.retrieve_string_queries(q)
+                retrieved_context = retriever.retrieve_string_queries(q)
             except Exception as e:
+                logger.error(f"Query cause error: {q}")
                 logger.error(f"Error retrieving context for query: {e}")
                 continue    
             retrieved_context = retrieved_context[0]
-
+           
             query_docs = []
             for i in retrieved_context.doc_indices:
+                if i >= len(docs):
+                    logger.error(f"Document index {i} is out of range for query. {len(docs)}")
+                    continue
                 doc = docs[i]
                 if doc.id not in all_retrieved_doc_ids:
                     all_retrieved_doc_ids.add(doc.id)
                     query_docs.append(doc)
                     all_retrieved_docs.append(doc)
-
             query_to_docs[q] = query_docs
 
             if query_docs:
@@ -789,7 +815,7 @@ class NarrativeTropeRAG(adal.GradComponent):
                 reasoning="No relevant passages were found in the book for any of the queries related to this trope.",
                 key_evidence=[],
             )
-            return adal.GeneratorOutput(data=final_answer)
+            return adal.GeneratorOutput(id=id, data=final_answer)
 
         initial_findings = []
         for q, q_docs in query_to_docs.items():
@@ -813,10 +839,10 @@ class NarrativeTropeRAG(adal.GradComponent):
                 "query": query,
                 "initial_findings": initial_findings_str,
             },
+            id=id
         )
 
         investigation_plan = investigation_plan_response.data
-
         investigation_paths = sorted(
             investigation_plan.paths, key=lambda p: p.priority
         )
@@ -850,9 +876,7 @@ class NarrativeTropeRAG(adal.GradComponent):
                 logger.info(
                     f"Retrieving documents for search query: {search_query}"
                 )
-                retrieved_context = self.retriever.retrieve_string_queries(
-                    search_query
-                )
+                retrieved_context = retriever.retrieve_string_queries(search_query)
                 if not retrieved_context:
                     logger.error(f"Retrieved context is empty for search query.")
                     continue
@@ -920,6 +944,7 @@ class NarrativeTropeRAG(adal.GradComponent):
                     "evidence": evidence_str,
                     "investigation_history": investigation_history_str,
                 },
+                id=id
             )
             if path_investigation_response.data is None:
                 logger.error(f"Path investigation response is None for path: {path.description}")
@@ -964,6 +989,7 @@ class NarrativeTropeRAG(adal.GradComponent):
                 "investigation_results": investigation_results_str,
                 "all_evidence": all_evidence_str,
             },
+            id=id
         )
 
         final_answer = final_answer_response.data
@@ -973,9 +999,6 @@ class NarrativeTropeRAG(adal.GradComponent):
         logger.info(f"Reasoning: {final_answer.reasoning}")
 
         return adal.GeneratorOutput(id=id, data=final_answer)
-
-        # except Exception as e:
-        #     logger.error(f"Error in structured approach: {str(e)}")
 
     def forward(
         self, query: str, book_chunks: List[Dict[str, str]], id: str | None = None
@@ -1131,7 +1154,7 @@ class NarrativeTropeAdal(adal.AdalComponent):
     ) -> float:
         if y_pred.data is not None:
             y_label = y_pred.data.answer
-            if y_label in ("yes", "true", "1"):
+            if "yes" in y_label.lower():
                 y_label = True
             else:
                 y_label = False
@@ -1146,11 +1169,7 @@ class NarrativeTropeAdal(adal.AdalComponent):
             eval_input=sample.answer,
             requires_opt=False,
         )
-        pred.eval_input = (
-            pred.data.answer
-            if pred.full_response and hasattr(pred.full_response, "data")
-            else "NO"
-        )
+        pred.eval_input = pred.answer
         return self.loss_fn, {"y": pred, "y_gt": y_gt}
 
 
@@ -1271,17 +1290,17 @@ def train():
     }
 
     backward_engine_model_config = {
-        "model_client": model_client,
+        "model_client": adal.GoogleGenAIClient,
         "model_kwargs": model_kwargs,
     }
 
     teacher_model_config = {
-        "model_client": model_client,
+        "model_client": adal.GoogleGenAIClient,
         "model_kwargs": model_kwargs,
     }
 
     text_optimizer_model_config = {
-        "model_client": model_client,
+        "model_client": adal.GoogleGenAIClient,
         "model_kwargs": model_kwargs,
     }
 
@@ -1296,10 +1315,11 @@ def train():
         text_optimizer_model_config=text_optimizer_model_config,
     )
 
-    trainset = load_dataset(cache_dir="preprocessed_books", n=2)
+    trainset = load_dataset(cache_dir="preprocessed_books", n=100)
     trainer = adal.Trainer(
         adaltask=adal_component,
         ckpt_path="checkpoints/",
+        train_batch_size=4
     )
     trainer.diagnose(dataset=trainset, split="train")
 
